@@ -11,29 +11,40 @@
 #include "gShadowMap.h"
 
 gDeferredLight::gDeferredLight() : gBufferFBO(0), positionTexture(0), normalTexture(0), albedoTexture(0), rboDepth(0), width(0), height(0),
-geometryShader(nullptr), lightingShader(nullptr), quadVAO(0), quadVBO(0) {
+	renderTargetFBO(0), depthTestWasEnabled(false), geometryPassActive(false), geometryShader(nullptr), lightingShader(nullptr), quadVAO(0), quadVBO(0) {
+	renderTargetViewport[0] = 0;
+	renderTargetViewport[1] = 0;
+	renderTargetViewport[2] = 0;
+	renderTargetViewport[3] = 0;
 	geometryShader = new gShader();
 	lightingShader = new gShader();
 
 }
 
 gDeferredLight::~gDeferredLight() {
-//	delete geometryShader;
-//	delete lightingShader;
-
+	releaseGBuffer();
+	if(quadVBO != 0) glDeleteBuffers(1, &quadVBO);
+	if(quadVAO != 0) glDeleteVertexArrays(1, &quadVAO);
+	delete geometryShader;
+	delete lightingShader;
 }
 
 void gDeferredLight::setup(int screenWidth, int screenHeight) {
-    width = screenWidth;
-    height = screenHeight;
-    geometryShader -> loadProgram(
-    	std::string(shader_deferred_geom_vert.data(), shader_deferred_geom_vert.size()),
-		std::string(shader_deferred_geom_frag.data(), shader_deferred_geom_frag.size())
+	if(screenWidth <= 0 || screenHeight <= 0) {
+		gLoge("gDeferredLight") << "Deferred rendering requires a positive render size.";
+		return;
+	}
+
+	if(gBufferFBO == 0) {
+		geometryShader -> loadProgram(
+			std::string(shader_deferred_geom_vert.data(), shader_deferred_geom_vert.size()),
+			std::string(shader_deferred_geom_frag.data(), shader_deferred_geom_frag.size())
 		);
-    lightingShader -> loadProgram(
-    	std::string(shader_deferred_light_vert.data(), shader_deferred_light_vert.size()),
-		std::string(shader_deferred_light_frag.data(), shader_deferred_light_frag.size())
-    );
+		lightingShader -> loadProgram(
+			std::string(shader_deferred_light_vert.data(), shader_deferred_light_vert.size()),
+			std::string(shader_deferred_light_frag.data(), shader_deferred_light_frag.size())
+		);
+    }
 
     lightingShader->use();
     
@@ -48,7 +59,27 @@ void gDeferredLight::setup(int screenWidth, int screenHeight) {
     }
     glUseProgram(0);
 
-    setupGBuffer();
+    resize(screenWidth, screenHeight);
+}
+
+void gDeferredLight::resize(int screenWidth, int screenHeight) {
+	if(screenWidth <= 0 || screenHeight <= 0) return;
+	if(geometryPassActive) {
+		gLogw("gDeferredLight") << "Ignoring resize during an active geometry pass.";
+		return;
+	}
+	if(gBufferFBO != 0 && width == screenWidth && height == screenHeight) return;
+
+	GLint previousFBO = 0;
+	GLint previousViewport[4];
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &previousFBO);
+	glGetIntegerv(GL_VIEWPORT, previousViewport);
+	releaseGBuffer();
+	width = screenWidth;
+	height = screenHeight;
+	setupGBuffer();
+	glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(previousFBO));
+	glViewport(previousViewport[0], previousViewport[1], previousViewport[2], previousViewport[3]);
 }
 
 void gDeferredLight::setupGBuffer() {
@@ -62,6 +93,8 @@ void gDeferredLight::setupGBuffer() {
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, positionTexture, 0);
 
 	//Normal
@@ -70,6 +103,8 @@ void gDeferredLight::setupGBuffer() {
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, normalTexture, 0);
 
 	//Albedo
@@ -78,6 +113,8 @@ void gDeferredLight::setupGBuffer() {
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, albedoTexture, 0);
 	//MRT
 	unsigned int attachments[4] = {GL_NONE, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
@@ -94,9 +131,45 @@ void gDeferredLight::setupGBuffer() {
 	}
 }
 
+void gDeferredLight::releaseGBuffer() {
+	if(rboDepth != 0) glDeleteRenderbuffers(1, &rboDepth);
+	if(albedoTexture != 0) glDeleteTextures(1, &albedoTexture);
+	if(normalTexture != 0) glDeleteTextures(1, &normalTexture);
+	if(positionTexture != 0) glDeleteTextures(1, &positionTexture);
+	if(gBufferFBO != 0) glDeleteFramebuffers(1, &gBufferFBO);
+	rboDepth = 0;
+	albedoTexture = 0;
+	normalTexture = 0;
+	positionTexture = 0;
+	gBufferFBO = 0;
+}
+
+void gDeferredLight::restoreRenderTarget() {
+	glBindFramebuffer(GL_FRAMEBUFFER, renderTargetFBO);
+	glViewport(renderTargetViewport[0], renderTargetViewport[1], renderTargetViewport[2], renderTargetViewport[3]);
+	if(depthTestWasEnabled) glEnable(GL_DEPTH_TEST);
+	else glDisable(GL_DEPTH_TEST);
+	geometryPassActive = false;
+}
+
 void gDeferredLight::enable() {
+	if(gBufferFBO == 0) {
+		gLoge("gDeferredLight") << "Call setup() before enable().";
+		return;
+	}
+	if(geometryPassActive) {
+		gLogw("gDeferredLight") << "Geometry pass is already active.";
+		return;
+	}
+	GLint currentFBO = 0;
+	glGetIntegerv(GL_DRAW_FRAMEBUFFER_BINDING, &currentFBO);
+	renderTargetFBO = static_cast<GLuint>(currentFBO);
+	glGetIntegerv(GL_VIEWPORT, renderTargetViewport);
+	depthTestWasEnabled = glIsEnabled(GL_DEPTH_TEST) == GL_TRUE;
+	geometryPassActive = true;
 	//Redirect rendering to our GBuffer
 	glBindFramebuffer(GL_FRAMEBUFFER, gBufferFBO);
+	glViewport(0, 0, width, height);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glEnable(GL_DEPTH_TEST);
@@ -115,15 +188,23 @@ void gDeferredLight::enable() {
 	}
 }
 
-void gDeferredLight::renderLightingPass(gLight* light, gCamera* camera, gShadowMap* shadowmap) {
-	gRenderer* renderer = gRenderObject::getRenderer();
-	GLuint currentFBO = renderer->getBoundFramebuffer();
+void gDeferredLight::renderLightingPass(gCamera* camera, gShadowMap* shadowmap) {
+	if(!geometryPassActive) {
+		gLoge("gDeferredLight") << "Call enable() before renderLightingPass().";
+		return;
+	}
+	if(camera == nullptr || shadowmap == nullptr) {
+		gLoge("gDeferredLight") << "Lighting pass requires valid light, camera, and shadow map objects.";
+		restoreRenderTarget();
+		return;
+	}
 
-	glBindFramebuffer(GL_FRAMEBUFFER, currentFBO);
+	glBindFramebuffer(GL_FRAMEBUFFER, renderTargetFBO);
+	glViewport(renderTargetViewport[0], renderTargetViewport[1], renderTargetViewport[2], renderTargetViewport[3]);
 	glClearColor(0.1f, 0.1f, 0.1f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 
-	if(lightingShader != nullptr && shadowmap != nullptr) {
+	if(lightingShader != nullptr) {
 		lightingShader->use();
 
 		// G-Buffer
@@ -140,9 +221,9 @@ void gDeferredLight::renderLightingPass(gLight* light, gCamera* camera, gShadowM
 		lightingShader->setInt("gAlbedo", 2);
 
 		// Lighting
-		lightingShader->setVec3("lightPos", light->getPosition());
-		lightingShader->setVec3("lightAmbient", light->getAmbientColor()->r, light->getAmbientColor()->g, light->getAmbientColor()->b);
-		lightingShader->setVec3("lightDiffuse", light->getDiffuseColor()->r, light->getDiffuseColor()->g, light->getDiffuseColor()->b);
+//		lightingShader->setVec3("lightPos", light->getPosition());
+//		lightingShader->setVec3("lightAmbient", light->getAmbientColor()->r, light->getAmbientColor()->g, light->getAmbientColor()->b);
+//		lightingShader->setVec3("lightDiffuse", light->getDiffuseColor()->r, light->getDiffuseColor()->g, light->getDiffuseColor()->b);
 		lightingShader->setVec3("viewPos", camera->getPosX(), camera->getPosY(), camera->getPosZ());
 
 		// Shadow
@@ -161,12 +242,16 @@ void gDeferredLight::renderLightingPass(gLight* light, gCamera* camera, gShadowM
 	glBindTexture(GL_TEXTURE_2D, 0);
 
 	glBindFramebuffer(GL_READ_FRAMEBUFFER, gBufferFBO);
-	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, currentFBO);
-	glBlitFramebuffer(0, 0, width, height, 0, 0, width, height, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
-	glBindFramebuffer(GL_FRAMEBUFFER, currentFBO);
+	glBindFramebuffer(GL_DRAW_FRAMEBUFFER, renderTargetFBO);
+	glBlitFramebuffer(0, 0, width, height,
+		renderTargetViewport[0], renderTargetViewport[1],
+		renderTargetViewport[0] + renderTargetViewport[2], renderTargetViewport[1] + renderTargetViewport[3],
+		GL_DEPTH_BUFFER_BIT, GL_NEAREST);
+	restoreRenderTarget();
 }
 
 void gDeferredLight::disable() {
+	if(geometryPassActive) restoreRenderTarget();
 	gRenderer* renderer = gRenderObject::getRenderer();
 	renderer->getColorShader()->use();
 	renderer->getColorShader()->setInt("isDeferred", 0);

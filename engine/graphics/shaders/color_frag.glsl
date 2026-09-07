@@ -535,10 +535,12 @@ vec4 calcSpotLight(Light light, vec3 normal, vec3 viewDir,
     // The cone falls off between the inner and the outer angle; outside it the
     // intensity clamps to 0 and only the ambient term survives.
     float theta = dot(lightDir, normalize(-light.direction));
-    float epsilon = light.cutOff - light.outerCutOff;
-    float intensity = clamp((theta - light.outerCutOff) / epsilon, 0.0, 1.0);
+    float cutOffCos = cos(radians(light.cutOff));
+    float outerCutOffCos = cos(radians(light.outerCutOff));
+    float epsilon = max(cutOffCos - outerCutOffCos, 0.0001);
+    float intensity = clamp((theta - outerCutOffCos) / epsilon, 0.0, 1.0);
 
-    ambient *= attenuation;
+    ambient *= attenuation * intensity;
     diffuse *= attenuation * intensity;
     specular *= attenuation * intensity;
     return ambient + diffuse + specular;
@@ -610,8 +612,7 @@ void main() {
 
     vec4 matSpecular = useSpecularMap() ? texture(specularmap, vTexCoords) * pc.specular : pc.specular;
 
-    vec4 result = vec4(0.0);
-    bool haslight = false;
+    vec4 result = scene.globalambientcolor * matAmbient;
     for (int i = 0; i < scene.lightnum; i++) {
         if ((scene.enabledlights & (1 << i)) == 0) continue;
 
@@ -626,13 +627,6 @@ void main() {
         } else {
             return;
         }
-        haslight = true;
-    }
-    // An unlit scene is not black: OpenGL falls back to the global ambient times the
-    // material's *ambient* colour - not its diffuse - and this has to match, or the
-    // two backends disagree on every scene that has no gLight in it.
-    if (!haslight) {
-        result = scene.globalambientcolor * matAmbient;
     }
 
     // color_frag.glsl ends with "result * renderColor * vec4(incolor, 1.0)", so a
@@ -875,9 +869,11 @@ vec4 calcSpotLight(Light light, vec3 normal, vec3 viewDir, float shadowing, vec4
     float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
 
     float theta = dot(lightDir, normalize(-light.direction));
-    float epsilon = (light.cutOff - light.outerCutOff);
-    float intensity = clamp((theta - light.outerCutOff) / epsilon, 0.0, 1.0);
-    ambient  *= attenuation;
+    float cutOffCos = cos(radians(light.cutOff));
+    float outerCutOffCos = cos(radians(light.outerCutOff));
+    float epsilon = max(cutOffCos - outerCutOffCos, 0.0001);
+    float intensity = clamp((theta - outerCutOffCos) / epsilon, 0.0, 1.0);
+    ambient  *= attenuation * intensity;
     diffuse  *= attenuation * intensity;
     specular *= attenuation * intensity;
     if (mUseShadowMap > 0) {
@@ -968,7 +964,7 @@ void main() {
         return;
     }
 
-    vec4 result = vec4(0.0);
+    vec4 result;
     vec3 norm;
     if (material.useNormalMap > 0) {
         norm = normalize(texture(material.normalMap, TexCoords).rgb * 2.0 - 1.0); 
@@ -1010,7 +1006,7 @@ void main() {
         shadowing = 1.0 - calculateShadow(FragPosLightSpace, softShadows);
     }
     
-    bool haslight = false;
+    result = globalambientcolor * materialAmbient;
     for (int i = 0; i < lightnum; i++) {
         if ((enabledlights & (1 << i)) == 0) {
             continue;
@@ -1026,11 +1022,6 @@ void main() {
         } else {
             return;
         }
-        haslight = true;
-    }
-    
-    if (!haslight) {
-        result = globalambientcolor * materialAmbient;
     }
 
     FragColor = result * renderColor * vec4(incolor, 1.0);

@@ -64,13 +64,13 @@ int gLight::getType() const {
 
 void gLight::rotate(float angle, float ax, float ay, float az) {
 	gNode::rotate(angle, ax, ay, az);
-	directioneuler = glm::vec3(0, 0, -1) * orientation;
+	directioneuler = orientation * glm::vec3(0, 0, -1);
 	ischanged = true;
 }
 
 void gLight::rotateDeg(float angle, float ax, float ay, float az) {
 	gNode::rotateDeg(angle, ax, ay, az);
-	directioneuler = glm::vec3(0, 0, -1) * orientation;
+	directioneuler = orientation * glm::vec3(0, 0, -1);
 	ischanged = true;
 }
 
@@ -247,25 +247,25 @@ float gLight::getSpotCutOffSpread() const {
 
 void gLight::setOrientation(const glm::quat& o) {
 	gNode::setOrientation(o);
-	directioneuler = glm::vec3(0, 0, -1) * orientation;
+	directioneuler = orientation * glm::vec3(0, 0, -1);
 	ischanged = true;
 }
 
 void gLight::setOrientation(const glm::vec3& angles) {
 	gNode::setOrientation(angles);
-	directioneuler = glm::vec3(0, 0, -1) * orientation;
+	directioneuler = orientation * glm::vec3(0, 0, -1);
 	ischanged = true;
 }
 
 void gLight::rotateAround(float radians, const glm::vec3& axis, const glm::vec3& point) {
 	gNode::rotateAround(radians, axis, point);
-	directioneuler = glm::vec3(0, 0, -1) * orientation;
+	directioneuler = orientation * glm::vec3(0, 0, -1);
 	ischanged = true;
 }
 
 void gLight::rotateAroundDeg(float degrees, const glm::vec3& axis, const glm::vec3& point) {
 	gNode::rotateAroundDeg(degrees, axis, point);
-	directioneuler = glm::vec3(0, 0, -1) * orientation;
+	directioneuler = orientation * glm::vec3(0, 0, -1);
 	ischanged = true;
 }
 

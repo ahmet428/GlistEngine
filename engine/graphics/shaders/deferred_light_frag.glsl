@@ -130,10 +130,12 @@ void main() {
     vec4 posData = texture(gPosition, TexCoords);
     vec3 FragPos = posData.rgb;
     float objShininess = posData.a;
+    float shininess = (objShininess > 1.0) ? objShininess : 32.0;
     
     vec4 normData = texture(gNormal, TexCoords);
     vec3 Normal = normData.rgb;
     float specIntensity = normData.a;
+    float effectiveSpecIntensity = (specIntensity > 0.01) ? specIntensity : 0.35;
     
     vec4 Albedo = texture(gAlbedo, TexCoords);
     // Removed Gamma Correction here to match the Forward renderer perfectly!
@@ -149,20 +151,21 @@ void main() {
     vec3 lightDir = normalize(lightPos - FragPos); 
     
     // Evaluate Fake SSAO for corner and edge depth
-	float rawAO = calculateAO(TexCoords, FragPos, norm);
-	float aoFactor = mix(1.0, rawAO, 0.3);
+	float aoFactor = calculateAO(TexCoords, FragPos, norm);
     
     // Evaluate Hemispheric Ambient (Up-facing is brighter than down-facing)
     float hemi = (norm.y + 1.0) * 0.5;
     float hemiFactor = mix(0.4, 1.0, hemi);
     
     //Lighting
-	vec3 totalAmbient = globalambientcolor.rgb * Albedo.rgb * aoFactor * hemiFactor;
+	vec3 totalAmbient = vec3(0.0);
     vec3 totalDiffuse = vec3(0.0);
     vec3 totalSpecular = vec3(0.0);
     
+    bool haslight = false;
     for (int i = 0; i < lightnum; i++) {
         if ((enabledlights & (1 << i)) == 0) continue;
+        haslight = true;
         
         Light light = lights[i];
         
@@ -173,51 +176,45 @@ void main() {
             vec3 lDir = normalize(-light.direction);
             float diff = max(dot(norm, lDir), 0.0);
             vec3 reflectDir = reflect(-lDir, norm);
-            float spec = 0.0;
-            if (objShininess > 0.0) {
-                spec = pow(max(dot(vDir, reflectDir), 0.0), objShininess);
-            }
+            float spec = pow(max(dot(vDir, reflectDir), 0.0), shininess);
             
-				totalAmbient += light.ambient.rgb * Albedo.rgb * aoFactor * hemiFactor;
-				totalDiffuse += light.diffuse.rgb * diff * Albedo.rgb;
-				totalSpecular += light.specular.rgb * spec * specIntensity;
+            // AO heavily darkens directional light in crevices (micro-shadowing)
+            totalAmbient += light.ambient.rgb * Albedo.rgb * aoFactor * hemiFactor;
+            totalDiffuse += light.diffuse.rgb * diff * Albedo.rgb * aoFactor;
+            totalSpecular += light.specular.rgb * spec * effectiveSpecIntensity * aoFactor; 
         }
         else if (light.type == 2) {
-			// Point Light
             vec3 lDir = normalize(light.position - FragPos);
             float distance = length(light.position - FragPos);
             float diff = max(dot(norm, lDir), 0.0);
             vec3 reflectDir = reflect(-lDir, norm);
-            float spec = 0.0;
-            if (objShininess > 0.0) {
-                spec = pow(max(dot(vDir, reflectDir), 0.0), objShininess);
-            }
+            float spec = pow(max(dot(vDir, reflectDir), 0.0), shininess);
             
             float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
             
             totalAmbient += light.ambient.rgb * Albedo.rgb * aoFactor * hemiFactor;
-			totalDiffuse += light.diffuse.rgb * diff * Albedo.rgb;
-			totalSpecular += light.specular.rgb * spec * specIntensity;
+            totalDiffuse += light.diffuse.rgb * diff * Albedo.rgb * attenuation * aoFactor;
+            totalSpecular += light.specular.rgb * spec * effectiveSpecIntensity * attenuation * aoFactor;
         }
         else if (light.type == 3) {
-            // Spot Light
             vec3 lDir = normalize(light.position - FragPos);
             float distance = length(light.position - FragPos);
             float diff = max(dot(norm, lDir), 0.0);
             vec3 reflectDir = reflect(-lDir, norm);
-            float spec = 0.0;
-            if (objShininess > 0.0) {
-                spec = pow(max(dot(vDir, reflectDir), 0.0), objShininess);
-            }
+            float spec = pow(max(dot(vDir, reflectDir), 0.0), shininess);
             
             float attenuation = 1.0 / (light.constant + light.linear * distance + light.quadratic * (distance * distance));
             float theta = dot(lDir, normalize(-light.direction));
-            float epsilon = (light.cutOff - light.outerCutOff);
-            float intensity = clamp((theta - light.outerCutOff) / epsilon, 0.0, 1.0);
+            float cutOffCos = cos(radians(light.cutOff));
+            float outerCutOffCos = cos(radians(light.outerCutOff));
+            float epsilon = max(cutOffCos - outerCutOffCos, 0.0001);
+            float intensity = clamp((theta - outerCutOffCos) / epsilon, 0.0, 1.0);
             
-            totalAmbient += light.ambient.rgb * Albedo.rgb * aoFactor * hemiFactor;
-			totalDiffuse += light.diffuse.rgb * diff * Albedo.rgb;
-			totalSpecular += light.specular.rgb * spec * specIntensity;
+            float spotIntensity = attenuation * intensity * 1.8;
+            
+            totalAmbient += light.ambient.rgb * Albedo.rgb * aoFactor * hemiFactor * attenuation * intensity;
+            totalDiffuse += light.diffuse.rgb * diff * Albedo.rgb * spotIntensity * aoFactor;
+            totalSpecular += light.specular.rgb * spec * effectiveSpecIntensity * spotIntensity * aoFactor;
         }
     }
     

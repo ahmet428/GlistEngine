@@ -16,12 +16,14 @@ public:
 	virtual ~gDeferredLight();
 	// Initializes deferred rendering
 	void setup(int screenWidth, int screenHeight);
+	// Recreates the G-buffer for a new render size. Safe to call after setup().
+	void resize(int screenWidth, int screenHeight);
 
 	// Starts geometry pass
 	void enable();
 
     // Lighting Pass
-	void renderLightingPass(gLight* light, gCamera* camera, gShadowMap* shadowmap);
+	void renderLightingPass(gCamera* camera, gShadowMap* shadowmap);
 
 	// End Deferred
 	void disable();
@@ -32,6 +34,8 @@ public:
 private:
 	// Sets up G-Buffer textures
 	void setupGBuffer();
+	void releaseGBuffer();
+	void restoreRenderTarget();
 
 	// Draws lighting quad
 	void drawFullScreenQuad();
@@ -46,6 +50,10 @@ private:
 
 	int width;
 	int height;
+	unsigned int renderTargetFBO;
+	int renderTargetViewport[4];
+	bool depthTestWasEnabled;
+	bool geometryPassActive;
 
 	gShader* geometryShader;
 	gShader* lightingShader;
