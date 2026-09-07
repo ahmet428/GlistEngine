@@ -67,11 +67,17 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 FragPos, vec3 Normal) {
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
 
+    // Outside of the shadow map frustum is unshadowed
+    if (projCoords.z > 1.0 || projCoords.x < 0.0 || projCoords.x > 1.0 || projCoords.y < 0.0 || projCoords.y > 1.0) {
+        return 0.0;
+    }
+
     float currentDepth = projCoords.z;
     vec3 normal = normalize(Normal);
     vec3 lightDir = normalize(shadowLightPos - FragPos); 
     
-    float bias = max(0.05 * (1.0 - dot(normal, lightDir)), 0.005);
+    // Balanced slope bias to prevent self-shadowing acne on terrain and walls
+    float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.0015);
     float shadow = 0.0;
     vec2 texelSize = vec2(1.0, 1.0) / vec2(textureSize(shadowMap, 0));
 
@@ -81,7 +87,7 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 FragPos, vec3 Normal) {
         for(int x = -2; x <= 2; ++x) {
             for(int y = -2; y <= 2; ++y) {
                 float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
-                shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
+                shadow += (currentDepth - bias > pcfDepth) ? 1.0 : 0.0;
             }
         }
         shadow /= 25.0;
@@ -89,7 +95,7 @@ float calculateShadow(vec4 fragPosLightSpace, vec3 FragPos, vec3 Normal) {
         for(int x = -1; x <= 1; ++x) {
             for(int y = -1; y <= 1; ++y) {
                 float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r;
-                shadow += currentDepth - bias > pcfDepth ? 1.0 : 0.0;
+                shadow += (currentDepth - bias > pcfDepth) ? 1.0 : 0.0;
             }
         }
         shadow /= 9.0;
@@ -158,7 +164,7 @@ void main() {
     float hemiFactor = mix(0.4, 1.0, hemi);
     
     //Lighting
-	vec3 totalAmbient = vec3(0.0);
+	vec3 totalAmbient = globalambientcolor.rgb * Albedo.rgb;
     vec3 totalDiffuse = vec3(0.0);
     vec3 totalSpecular = vec3(0.0);
     
