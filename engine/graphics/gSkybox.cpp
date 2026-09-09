@@ -470,7 +470,9 @@ unsigned int gSkybox::uploadVulkanFace(int faceWidth, int faceHeight, void* pixe
 
 	unsigned int texture = renderer->createTextures();
 	renderer->bindTexture(texture);
-	renderer->texImage2D(GL_TEXTURE_2D, GL_RGBA, faceWidth, faceHeight, GL_RGBA, GL_UNSIGNED_BYTE, source);
+	// HDR conversion produces RGBA; ordinary faces still contain packed RGB.
+	const GLenum sourceformat = hdr ? GL_RGBA : GL_RGB;
+	renderer->texImage2D(GL_TEXTURE_2D, GL_RGBA, faceWidth, faceHeight, sourceformat, GL_UNSIGNED_BYTE, source);
 	renderer->setWrappingAndFiltering(GL_TEXTURE_2D, GL_CLAMP_TO_EDGE, GL_CLAMP_TO_EDGE, GL_LINEAR, GL_LINEAR);
 
 	return texture;
