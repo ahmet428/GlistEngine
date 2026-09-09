@@ -612,7 +612,8 @@ void main() {
 
     vec4 matSpecular = useSpecularMap() ? texture(specularmap, vTexCoords) * pc.specular : pc.specular;
 
-    vec4 result = scene.globalambientcolor * matAmbient;
+    vec4 result = vec4(0.0);
+	bool haslight = false;
     for (int i = 0; i < scene.lightnum; i++) {
         if ((scene.enabledlights & (1 << i)) == 0) continue;
 
@@ -627,6 +628,10 @@ void main() {
         } else {
             return;
         }
+        haslight = true;
+    }
+    if (!haslight) {
+        result = scene.globalambientcolor * matAmbient;
     }
 
     // color_frag.glsl ends with "result * renderColor * vec4(incolor, 1.0)", so a
@@ -964,7 +969,7 @@ void main() {
         return;
     }
 
-    vec4 result;
+    vec4 result = vec4(0.0);
     vec3 norm;
     if (material.useNormalMap > 0) {
         norm = normalize(texture(material.normalMap, TexCoords).rgb * 2.0 - 1.0); 
@@ -1000,13 +1005,13 @@ void main() {
         materialSpecular = material.specular;
     }
     
-    float shadowing;
+    float shadowing = 1.0;
     if (mUseShadowMap > 0) {
         bool softShadows = (flags & ENABLE_SOFT_SHADOWS_FLAG) > 0;
         shadowing = 1.0 - calculateShadow(FragPosLightSpace, softShadows);
     }
     
-    result = globalambientcolor * materialAmbient;
+    bool haslight = false;
     for (int i = 0; i < lightnum; i++) {
         if ((enabledlights & (1 << i)) == 0) {
             continue;
@@ -1022,8 +1027,11 @@ void main() {
         } else {
             return;
         }
+        haslight = true;
     }
-
+    if (!haslight) {
+        result = globalambientcolor * materialAmbient;
+    }
     FragColor = result * renderColor * vec4(incolor, 1.0);
 
     if((flags & ENABLE_FOG_FLAG) > 0) {

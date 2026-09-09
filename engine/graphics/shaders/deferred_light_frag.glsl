@@ -224,6 +224,10 @@ void main() {
         }
     }
     
+    if (!haslight) {
+        totalAmbient = globalambientcolor.rgb * Albedo.rgb * aoFactor * hemiFactor;
+    }
+
     //Shadow Blending
     vec4 fragPosLightSpace = lightMatrix * vec4(FragPos, 1.0);
     float shadowing = 1.0 - calculateShadow(fragPosLightSpace, FragPos, norm);
